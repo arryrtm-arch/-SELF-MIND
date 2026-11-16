@@ -46,7 +46,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brand.addView(label("SELF-MIND", 22f, text, true))
+        brand.addView(label("J.A.R.V.I.S.", 22f, text, true))
         brand.addView(label("PERSONAL AI DEVELOPMENT SYSTEM", 9f, muted, true))
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
         val status = label("● LOCAL MVP", 10f, accent, true)
