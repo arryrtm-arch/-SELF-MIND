@@ -117,9 +117,9 @@ class MainActivity : Activity() {
         val input = EditText(this).apply {
             hint = "Message SELF-MIND…"
             setHintTextColor(muted)
-            setTextColor(text)
+            setTextColor(this@MainActivity.text)
             textSize = 14f
-            singleLine = false
+            setSingleLine(false)
             maxLines = 3
             setPadding(dp(14), dp(12), dp(14), dp(12))
             background = rounded(panel2, 16)
@@ -177,7 +177,7 @@ class MainActivity : Activity() {
         val field = EditText(this).apply {
             hint = "Example: Create a notes module with search…"
             setHintTextColor(muted)
-            setTextColor(text)
+            setTextColor(this@MainActivity.text)
             textSize = 14f
             minLines = 3
             gravity = Gravity.TOP
