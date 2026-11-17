@@ -11,10 +11,14 @@ import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 
 class MainActivity : Activity() {
 
@@ -28,6 +32,11 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var prefs: SharedPreferences
     private var page = "Chat"
+
+    companion object {
+        private const val FILE_PICKER_REQUEST = 1001
+        private const val MAX_PREVIEW_BYTES = 20 * 1024
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -208,19 +217,18 @@ class MainActivity : Activity() {
         infoCard("Self-improvement", "Approval-gated",
             "New code must be tested in an isolated workspace and approved before integration.")
 
-        val testButton = actionButton("Test Permission Manager")
-        root.addView(testButton)
+        infoCard("Personal file access", "User-controlled",
+            "Only a text file selected by you can be opened by this feature.")
 
-        testButton.setOnClickListener {
+        val fileButton = actionButton("Access Personal Text File")
+        root.addView(fileButton)
+
+        fileButton.setOnClickListener {
             askPermission(
                 SensitiveAction.READ_PERSONAL_FILE,
-                "J.A.R.V.I.S. wants permission to access a personal file. Allow this test action?"
+                "J.A.R.V.I.S. wants to open a text file you select. Allow this action?"
             ) {
-                Toast.makeText(
-                    this,
-                    "Approval successful. Test action allowed.",
-                    Toast.LENGTH_LONG
-                ).show()
+                openTextFilePicker()
             }
         }
     }
@@ -252,6 +260,94 @@ class MainActivity : Activity() {
             }
             .setCancelable(false)
             .show()
+    }
+
+    private fun openTextFilePicker() {
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "text/plain"
+            }
+
+            startActivityForResult(intent, FILE_PICKER_REQUEST)
+
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "File picker could not open: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == FILE_PICKER_REQUEST && resultCode == RESULT_OK) {
+            val uri: Uri = data?.data ?: return
+            readSelectedTextFile(uri)
+        }
+    }
+
+    private fun readSelectedTextFile(uri: Uri) {
+        try {
+            val fileName = contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)
+                } else {
+                    "Selected file"
+                }
+            } ?: "Selected file"
+
+            val output = ByteArrayOutputStream()
+
+            contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(4096)
+                var total = 0
+
+                while (total < MAX_PREVIEW_BYTES) {
+                    val remaining = MAX_PREVIEW_BYTES - total
+                    val count = input.read(
+                        buffer,
+                        0,
+                        minOf(buffer.size, remaining)
+                    )
+
+                    if (count <= 0) break
+
+                    output.write(buffer, 0, count)
+                    total += count
+                }
+            } ?: throw Exception("Unable to open selected file.")
+
+            val preview = output.toByteArray().toString(Charsets.UTF_8)
+
+            AlertDialog.Builder(this)
+                .setTitle("File Access Successful")
+                .setMessage(
+                    "File: $fileName\n\n" +
+                    "Text preview (maximum 20 KB):\n\n$preview"
+                )
+                .setPositiveButton("Close", null)
+                .show()
+
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "File could not be opened: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun cyberPage() {
@@ -350,22 +446,6 @@ class MainActivity : Activity() {
             "Privacy: this starter app does not upload your messages to a server.",
             12f, muted
         ))
-    }
-
-    private fun testPermissionManager(): String {
-        val action = SensitiveAction.DELETE_FILE
-        PermissionManager.reset(action)
-
-        val blocked = !PermissionManager.canExecute(action)
-        PermissionManager.approve(action)
-        val approved = PermissionManager.canExecute(action)
-        PermissionManager.reset(action)
-
-        return if (blocked && approved) {
-            "Permission Manager test PASSED."
-        } else {
-            "Permission Manager test FAILED."
-        }
     }
 
     private fun localReply(prompt: String): String {
