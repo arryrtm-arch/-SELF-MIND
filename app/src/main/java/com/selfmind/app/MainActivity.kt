@@ -234,6 +234,19 @@ class MainActivity : Activity() {
             "Approval-gated",
             "New code must be tested in an isolated workspace and approved before integration."
         )
+        
+val testButton = actionButton("Test Permission Manager")
+root.addView(testButton)
+
+testButton.setOnClickListener {
+    val result = testPermissionManager()
+    android.widget.Toast.makeText(
+        this,
+        result,
+        android.widget.Toast.LENGTH_LONG
+    ).show()
+}
+
     }
 
     private fun cyberPage() {
