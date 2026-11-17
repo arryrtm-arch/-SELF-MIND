@@ -1,8 +1,8 @@
 
 package com.selfmind.app
 
-import android.app.AlertDialog
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
@@ -59,9 +59,7 @@ class MainActivity : Activity() {
         brand.addView(label("PERSONAL AI DEVELOPMENT SYSTEM", 9f, muted, true))
 
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
-
-        val status = label("● LOCAL MVP", 10f, accent, true)
-        header.addView(status)
+        header.addView(label("● LOCAL MVP", 10f, accent, true))
 
         root.addView(header)
         space(root, 18)
@@ -86,7 +84,6 @@ class MainActivity : Activity() {
         }
 
         listOf("Chat", "Brain", "Cyber Lab", "Builder", "Memory").forEach { item ->
-
             val b = TextView(this).apply {
                 this.text = when (item) {
                     "Cyber Lab" -> "⌁\nCyber"
@@ -95,14 +92,12 @@ class MainActivity : Activity() {
                     "Builder" -> "⌘\nBuild"
                     else -> "▤\nMemory"
                 }
-
                 gravity = Gravity.CENTER
                 textSize = 10f
                 setTextColor(if (page == item) accent else muted)
                 setPadding(dp(5), dp(3), dp(5), dp(3))
                 setOnClickListener { showPage(item) }
             }
-
             nav.addView(b, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
 
@@ -111,18 +106,14 @@ class MainActivity : Activity() {
 
     private fun chatPage() {
         root.addView(label("Your command centre", 23f, text, true))
-        root.addView(
-            label(
-                "Give J.A.R.V.I.S. a task. This starter build runs in local demo mode.",
-                13f,
-                muted
-            )
-        )
+        root.addView(label(
+            "Give J.A.R.V.I.S. a task. This starter build runs in local demo mode.",
+            13f, muted
+        ))
 
         space(root, 14)
 
         val scroll = ScrollView(this)
-
         val messages = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -139,7 +130,6 @@ class MainActivity : Activity() {
         } else {
             for (i in 0 until history.length()) {
                 val obj = history.optJSONObject(i) ?: continue
-
                 addBubble(
                     messages,
                     obj.optString("role"),
@@ -182,12 +172,9 @@ class MainActivity : Activity() {
 
             setOnClickListener {
                 val prompt = input.text.toString().trim()
-
                 if (prompt.isNotEmpty()) {
                     saveMessage("You", prompt)
-
-                    val reply = localReply(prompt)
-                    saveMessage("J.A.R.V.I.S.", reply)
+                    saveMessage("J.A.R.V.I.S.", localReply(prompt))
 
                     (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                         .hideSoftInputFromWindow(input.windowToken, 0)
@@ -197,12 +184,9 @@ class MainActivity : Activity() {
             }
         }
 
-        row.addView(
-            send,
-            LinearLayout.LayoutParams(-2, dp(54)).apply {
-                leftMargin = dp(8)
-            }
-        )
+        row.addView(send, LinearLayout.LayoutParams(-2, dp(54)).apply {
+            leftMargin = dp(8)
+        })
 
         root.addView(row)
     }
@@ -212,98 +196,95 @@ class MainActivity : Activity() {
         root.addView(label("Core intelligence status and planned integrations.", 13f, muted))
         space(root, 14)
 
-        infoCard(
-            "Reasoning engine",
-            "Not connected",
-            "Choose an OpenAI-compatible or local model endpoint in a future backend setup."
-        )
+        infoCard("Reasoning engine", "Not connected",
+            "Choose an AI model endpoint in a future backend setup.")
 
-        infoCard(
-            "Memory system",
-            "Local conversation memory",
-            "Chat messages are saved on this device using app preferences."
-        )
+        infoCard("Memory system", "Local conversation memory",
+            "Chat messages are saved on this device.")
 
-        infoCard(
-            "Agent orchestrator",
-            "Planned",
-            "Will coordinate researcher, coder, tester and reviewer agents."
-        )
+        infoCard("Agent orchestrator", "Planned",
+            "Will coordinate researcher, coder, tester and reviewer agents.")
 
-        infoCard(
-            "Self-improvement",
-            "Approval-gated",
-            "New code must be tested in an isolated workspace and approved before integration."
-        )
-        
-val testButton = actionButton("Test Permission Manager")
-root.addView(testButton)
+        infoCard("Self-improvement", "Approval-gated",
+            "New code must be tested in an isolated workspace and approved before integration.")
 
-testButton.setOnClickListener {
-    val result = testPermissionManager()
-    android.widget.Toast.makeText(
-        this,
-        result,
-        android.widget.Toast.LENGTH_LONG
-    ).show()
-}
+        val testButton = actionButton("Test Permission Manager")
+        root.addView(testButton)
 
+        testButton.setOnClickListener {
+            askPermission(
+                SensitiveAction.READ_PERSONAL_FILE,
+                "J.A.R.V.I.S. wants permission to access a personal file. Allow this test action?"
+            ) {
+                Toast.makeText(
+                    this,
+                    "Approval successful. Test action allowed.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun askPermission(
+        action: SensitiveAction,
+        description: String,
+        onApproved: () -> Unit
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("J.A.R.V.I.S. Permission")
+            .setMessage(description)
+            .setPositiveButton("Allow") { _, _ ->
+                PermissionManager.approve(action)
+
+                if (PermissionManager.consumeApproval(action)) {
+                    onApproved()
+                }
+            }
+            .setNegativeButton("Deny") { _, _ ->
+                PermissionManager.deny(action)
+                PermissionManager.reset(action)
+
+                Toast.makeText(
+                    this,
+                    "Permission denied. Action blocked.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun cyberPage() {
         root.addView(label("Cyber Intelligence", 23f, text, true))
-        root.addView(
-            label(
-                "Learn and test security in systems you own or have permission to assess.",
-                13f,
-                muted
-            )
-        )
-
+        root.addView(label(
+            "Learn and test security in systems you own or have permission to assess.",
+            13f, muted
+        ))
         space(root, 14)
 
-        infoCard(
-            "Learning path",
-            "OWASP • Networking • Linux",
-            "Build foundations before advanced vulnerability research."
-        )
+        infoCard("Learning path", "OWASP • Networking • Linux",
+            "Build foundations before advanced vulnerability research.")
 
-        infoCard(
-            "Practice lab",
-            "Not connected",
-            "Use intentionally vulnerable training labs such as PortSwigger Academy or OWASP Juice Shop."
-        )
+        infoCard("Practice lab", "Not connected",
+            "Use intentionally vulnerable training labs such as PortSwigger Academy or OWASP Juice Shop.")
 
-        infoCard(
-            "Safety boundary",
-            "Authorized testing only",
-            "No real-world scanning, exploitation, credential theft or persistence tools are included in this starter app."
-        )
+        infoCard("Safety boundary", "Authorized testing only",
+            "No real-world scanning, exploitation, credential theft or persistence tools are included.")
 
-        infoCard(
-            "Research notebook",
-            "Planned",
-            "Store findings with source, affected version, reproduction scope and remediation."
-        )
+        infoCard("Research notebook", "Planned",
+            "Store findings with source, affected version, reproduction scope and remediation.")
     }
 
     private fun builderPage() {
         root.addView(label("Self Builder", 23f, text, true))
-        root.addView(
-            label(
-                "Plan new capabilities. Execution is intentionally disabled until a sandbox backend is connected.",
-                13f,
-                muted
-            )
-        )
-
+        root.addView(label(
+            "Plan new capabilities. Execution is intentionally disabled until a sandbox backend is connected.",
+            13f, muted
+        ))
         space(root, 14)
 
-        infoCard(
-            "Module factory",
-            "Draft mode",
-            "Describe a feature and the future builder will create a plan, code changes and tests."
-        )
+        infoCard("Module factory", "Draft mode",
+            "Describe a feature and the future builder will create a plan, code changes and tests.")
 
         val field = EditText(this).apply {
             hint = "Example: Create a notes module with search…"
@@ -332,7 +313,6 @@ testButton.setOnClickListener {
 
         button.setOnClickListener {
             val request = field.text.toString().trim()
-
             result.text = if (request.isBlank()) {
                 "Enter a feature request first."
             } else {
@@ -354,13 +334,8 @@ testButton.setOnClickListener {
         root.addView(label("Your saved local conversation history.", 13f, muted))
         space(root, 14)
 
-        val count = loadMessages().length()
-
-        infoCard(
-            "Conversation records",
-            count.toString(),
-            "Stored locally on this Android device."
-        )
+        infoCard("Conversation records", loadMessages().length().toString(),
+            "Stored locally on this Android device.")
 
         val clear = actionButton("Clear local chat history")
         root.addView(clear)
@@ -371,51 +346,43 @@ testButton.setOnClickListener {
         }
 
         space(root, 8)
-
-        root.addView(
-            label(
-                "Privacy: this starter app does not upload your messages to a server.",
-                12f,
-                muted
-            )
-        )
+        root.addView(label(
+            "Privacy: this starter app does not upload your messages to a server.",
+            12f, muted
+        ))
     }
 
-private fun testPermissionManager(): String {
-    val action = SensitiveAction.DELETE_FILE
+    private fun testPermissionManager(): String {
+        val action = SensitiveAction.DELETE_FILE
+        PermissionManager.reset(action)
 
-    PermissionManager.reset(action)
+        val blocked = !PermissionManager.canExecute(action)
+        PermissionManager.approve(action)
+        val approved = PermissionManager.canExecute(action)
+        PermissionManager.reset(action)
 
-    val blocked = !PermissionManager.canExecute(action)
-
-    PermissionManager.approve(action)
-
-    val approved = PermissionManager.canExecute(action)
-
-    PermissionManager.reset(action)
-
-    return if (blocked && approved) {
-        "Permission Manager test PASSED. Sensitive actions are blocked until approved."
-    } else {
-        "Permission Manager test FAILED. Please check the module."
+        return if (blocked && approved) {
+            "Permission Manager test PASSED."
+        } else {
+            "Permission Manager test FAILED."
+        }
     }
-}
 
     private fun localReply(prompt: String): String {
         val p = prompt.lowercase()
 
         return when {
             listOf("hack", "hacking", "cyber", "security").any { p.contains(it) } ->
-                "Cyber learning mode: start with networking, Linux, HTTP, OWASP Top 10 and safe practice labs. I can help explain concepts and plan authorized tests. This offline starter does not run scans or exploit systems."
+                "Cyber learning mode: start with networking, Linux, HTTP, OWASP Top 10 and safe practice labs. I can help explain concepts and plan authorized tests."
 
             listOf("build", "create", "module", "feature", "app").any { p.contains(it) } ->
-                "Builder mode is currently a local prototype. Open the Builder tab to draft a development plan. Real code generation and sandbox execution will be added when we connect a backend."
+                "Builder mode is currently a local prototype. Open the Builder tab to draft a development plan."
 
             p.contains("memory") ->
-                "Your chat history is stored locally on this device. Open Memory to view the record count or clear it."
+                "Your chat history is stored locally on this device."
 
             else ->
-                "I received your instruction: \"$prompt\". This first build is an offline interface prototype, not yet connected to a reasoning model. The next milestone is a secure backend and model connection."
+                "I received your instruction: \"$prompt\". This first build is an offline interface prototype, not yet connected to a reasoning model."
         }
     }
 
@@ -500,10 +467,7 @@ private fun testPermissionManager(): String {
         }
 
     private fun space(parent: LinearLayout, height: Int) {
-        parent.addView(
-            View(this),
-            LinearLayout.LayoutParams(1, dp(height))
-        )
+        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable =
