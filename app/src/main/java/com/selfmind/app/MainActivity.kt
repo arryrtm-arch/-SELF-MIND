@@ -1,26 +1,35 @@
 
 package com.selfmind.app
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.os.Bundle
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
-import android.view.View
-import android.view.inputmethod.InputMethodManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import android.provider.OpenableColumns
+import android.view.Gravity
+import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.util.Locale
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private val bg = Color.rgb(9, 14, 25)
     private val panel = Color.rgb(18, 27, 43)
@@ -31,17 +40,35 @@ class MainActivity : Activity() {
 
     private lateinit var root: LinearLayout
     private lateinit var prefs: SharedPreferences
+
     private var page = "Chat"
+    private var tts: TextToSpeech? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var wakeListening = false
+    private var wakeDetected = false
+    private var wakeStatus: TextView? = null
+
+    private val handler = Handler(Looper.getMainLooper())
 
     companion object {
         private const val FILE_PICKER_REQUEST = 1001
         private const val MAX_PREVIEW_BYTES = 20 * 1024
+        private const val MICROPHONE_REQUEST = 2001
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         prefs = getSharedPreferences("self_mind", MODE_PRIVATE)
+        tts = TextToSpeech(this, this)
+
         showPage("Chat")
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts?.language = Locale("hi", "IN")
+        }
     }
 
     private fun showPage(name: String) {
@@ -120,7 +147,32 @@ class MainActivity : Activity() {
             13f, muted
         ))
 
-        space(root, 14)
+        space(root, 12)
+
+        val wakeButton = actionButton(
+            if (wakeListening) "Stop Jarvis Listening" else "Start Jarvis Wake Listening"
+        )
+        root.addView(wakeButton)
+
+        wakeStatus = label(
+            if (wakeListening) "Listening for: Jarvis" else "Wake listening is OFF",
+            12f, accent
+        )
+        root.addView(wakeStatus!!)
+        space(root, 12)
+
+        wakeButton.setOnClickListener {
+            if (wakeListening) {
+                stopWakeListening()
+            } else {
+                askPermission(
+                    SensitiveAction.ACCESS_MICROPHONE,
+                    "J.A.R.V.I.S. wants to listen for the wake word Jarvis while this app is open. Allow?"
+                ) {
+                    checkMicrophonePermission()
+                }
+            }
+        }
 
         val scroll = ScrollView(this)
         val messages = LinearLayout(this).apply {
@@ -198,6 +250,216 @@ class MainActivity : Activity() {
         })
 
         root.addView(row)
+    }
+
+    private fun checkMicrophonePermission() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            startWakeListening()
+        } else {
+            requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                MICROPHONE_REQUEST
+            )
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == MICROPHONE_REQUEST) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                startWakeListening()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Microphone permission denied.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun startWakeListening() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(
+                this,
+                "Speech recognition is not available on this phone.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        try {
+            wakeListening = true
+            wakeDetected = false
+            updateWakeStatus("Listening for: Jarvis")
+
+            speechRecognizer?.destroy()
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+
+                override fun onReadyForSpeech(params: Bundle?) {
+                    updateWakeStatus("Listening for: Jarvis")
+                }
+
+                override fun onBeginningOfSpeech() {}
+
+                override fun onRmsChanged(rmsdB: Float) {}
+
+                override fun onBufferReceived(buffer: ByteArray?) {}
+
+                override fun onEndOfSpeech() {}
+
+                override fun onError(error: Int) {
+                    if (wakeListening && !wakeDetected) {
+                        if (error == SpeechRecognizer.ERROR_NO_MATCH ||
+                            error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        ) {
+                            restartWakeListening(500)
+                        } else {
+                            stopWakeListening()
+                            updateWakeStatus("Listening stopped. Tap Start to try again.")
+                        }
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    if (!wakeListening) return
+
+                    val matches = results?.getStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION
+                    )
+
+                    val spoken = matches?.firstOrNull().orEmpty()
+                    checkWakePhrase(spoken)
+
+                    if (wakeListening && !wakeDetected) {
+                        restartWakeListening(400)
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    if (!wakeListening || wakeDetected) return
+
+                    val matches = partialResults?.getStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION
+                    )
+
+                    val spoken = matches?.firstOrNull().orEmpty()
+                    checkWakePhrase(spoken)
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+
+            listenForWakeWord()
+
+        } catch (e: Exception) {
+            stopWakeListening()
+            Toast.makeText(
+                this,
+                "Wake listening error: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun listenForWakeWord() {
+        if (!wakeListening || isFinishing) return
+
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
+
+            speechRecognizer?.startListening(intent)
+
+        } catch (_: Exception) {
+            stopWakeListening()
+            updateWakeStatus("Could not start microphone listening.")
+        }
+    }
+
+    private fun checkWakePhrase(spoken: String) {
+        if (!wakeListening || wakeDetected) return
+
+        val words = spoken.lowercase(Locale.ROOT)
+            .replace(Regex("[^a-z ]"), " ")
+            .trim()
+
+        if (words.split(Regex("\\s+")).any {
+                it == "jarvis" || it == "jervis"
+            }) {
+            wakeDetected = true
+            updateWakeStatus("Wake word detected!")
+
+            try {
+                speechRecognizer?.stopListening()
+            } catch (_: Exception) {}
+
+            tts?.speak(
+                "Ji, Master Arhaan",
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                "JARVIS_WAKE_REPLY"
+            )
+
+            handler.postDelayed({
+                if (wakeListening && !isFinishing) {
+                    wakeDetected = false
+                    listenForWakeWord()
+                }
+            }, 1800)
+        }
+    }
+
+    private fun restartWakeListening(delay: Long) {
+        handler.postDelayed({
+            if (wakeListening && !wakeDetected && !isFinishing) {
+                listenForWakeWord()
+            }
+        }, delay)
+    }
+
+    private fun updateWakeStatus(message: String) {
+        wakeStatus?.text = message
+    }
+
+    private fun stopWakeListening() {
+        wakeListening = false
+        wakeDetected = false
+        handler.removeCallbacksAndMessages(null)
+
+        try {
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+
+        speechRecognizer = null
+        updateWakeStatus("Wake listening is OFF")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (wakeListening) {
+            stopWakeListening()
+        }
     }
 
     private fun brainPage() {
@@ -302,11 +564,8 @@ class MainActivity : Activity() {
                 null,
                 null
             )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    cursor.getString(0)
-                } else {
-                    "Selected file"
-                }
+                if (cursor.moveToFirst()) cursor.getString(0)
+                else "Selected file"
             } ?: "Selected file"
 
             val output = ByteArrayOutputStream()
@@ -365,198 +624,4 @@ class MainActivity : Activity() {
             "Use intentionally vulnerable training labs such as PortSwigger Academy or OWASP Juice Shop.")
 
         infoCard("Safety boundary", "Authorized testing only",
-            "No real-world scanning, exploitation, credential theft or persistence tools are included.")
-
-        infoCard("Research notebook", "Planned",
-            "Store findings with source, affected version, reproduction scope and remediation.")
-    }
-
-    private fun builderPage() {
-        root.addView(label("Self Builder", 23f, text, true))
-        root.addView(label(
-            "Plan new capabilities. Execution is intentionally disabled until a sandbox backend is connected.",
-            13f, muted
-        ))
-        space(root, 14)
-
-        infoCard("Module factory", "Draft mode",
-            "Describe a feature and the future builder will create a plan, code changes and tests.")
-
-        val field = EditText(this).apply {
-            hint = "Example: Create a notes module with search…"
-            setHintTextColor(muted)
-            setTextColor(this@MainActivity.text)
-            textSize = 14f
-            minLines = 3
-            gravity = Gravity.TOP
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = rounded(panel2, 14)
-        }
-
-        root.addView(field, LinearLayout.LayoutParams(-1, dp(112)))
-        space(root, 10)
-
-        val button = actionButton("Create development plan")
-        root.addView(button)
-
-        val result = TextView(this).apply {
-            setTextColor(muted)
-            textSize = 13f
-            setPadding(dp(4), dp(12), dp(4), dp(4))
-        }
-
-        root.addView(result)
-
-        button.setOnClickListener {
-            val request = field.text.toString().trim()
-            result.text = if (request.isBlank()) {
-                "Enter a feature request first."
-            } else {
-                "DRAFT PLAN\n" +
-                    "1. Clarify requirements\n" +
-                    "2. Design module interface\n" +
-                    "3. Generate implementation\n" +
-                    "4. Write tests\n" +
-                    "5. Run in isolated sandbox\n" +
-                    "6. Review diff and request your approval\n\n" +
-                    "Requested feature: $request\n\n" +
-                    "Status: plan drafted locally; no code was executed."
-            }
-        }
-    }
-
-    private fun memoryPage() {
-        root.addView(label("Long-term Memory", 23f, text, true))
-        root.addView(label("Your saved local conversation history.", 13f, muted))
-        space(root, 14)
-
-        infoCard("Conversation records", loadMessages().length().toString(),
-            "Stored locally on this Android device.")
-
-        val clear = actionButton("Clear local chat history")
-        root.addView(clear)
-
-        clear.setOnClickListener {
-            prefs.edit().remove("messages").apply()
-            showPage("Memory")
-        }
-
-        space(root, 8)
-        root.addView(label(
-            "Privacy: this starter app does not upload your messages to a server.",
-            12f, muted
-        ))
-    }
-
-    private fun localReply(prompt: String): String {
-        val p = prompt.lowercase()
-
-        return when {
-            listOf("hack", "hacking", "cyber", "security").any { p.contains(it) } ->
-                "Cyber learning mode: start with networking, Linux, HTTP, OWASP Top 10 and safe practice labs. I can help explain concepts and plan authorized tests."
-
-            listOf("build", "create", "module", "feature", "app").any { p.contains(it) } ->
-                "Builder mode is currently a local prototype. Open the Builder tab to draft a development plan."
-
-            p.contains("memory") ->
-                "Your chat history is stored locally on this device."
-
-            else ->
-                "I received your instruction: \"$prompt\". This first build is an offline interface prototype, not yet connected to a reasoning model."
-        }
-    }
-
-    private fun saveMessage(role: String, content: String) {
-        val arr = loadMessages()
-        arr.put(JSONObject().put("role", role).put("content", content))
-        prefs.edit().putString("messages", arr.toString()).apply()
-    }
-
-    private fun loadMessages(): JSONArray {
-        return try {
-            JSONArray(prefs.getString("messages", "[]") ?: "[]")
-        } catch (_: Exception) {
-            JSONArray()
-        }
-    }
-
-    private fun addBubble(
-        parent: LinearLayout,
-        role: String,
-        content: String,
-        isUser: Boolean
-    ) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(
-                if (isUser) Color.rgb(24, 65, 61) else panel,
-                16
-            )
-            setPadding(dp(13), dp(10), dp(13), dp(10))
-        }
-
-        card.addView(label(role, 11f, if (isUser) accent else muted, true))
-        space(card, 4)
-        card.addView(label(content, 14f, text))
-
-        val params = LinearLayout.LayoutParams(-1, -2)
-        params.bottomMargin = dp(9)
-        parent.addView(card, params)
-    }
-
-    private fun infoCard(title: String, value: String, detail: String) {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(panel, 16)
-            setPadding(dp(15), dp(13), dp(15), dp(13))
-        }
-
-        box.addView(label(title, 12f, muted, true))
-        space(box, 4)
-        box.addView(label(value, 17f, accent, true))
-        space(box, 3)
-        box.addView(label(detail, 12f, text))
-
-        val lp = LinearLayout.LayoutParams(-1, -2)
-        lp.bottomMargin = dp(10)
-        root.addView(box, lp)
-    }
-
-    private fun actionButton(title: String): TextView =
-        TextView(this).apply {
-            text = title
-            gravity = Gravity.CENTER
-            setTextColor(bg)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            background = rounded(accent, 14)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-        }
-
-    private fun label(
-        value: String,
-        size: Float,
-        color: Int,
-        bold: Boolean = false
-    ): TextView =
-        TextView(this).apply {
-            text = value
-            textSize = size
-            setTextColor(color)
-            if (bold) setTypeface(null, Typeface.BOLD)
-        }
-
-    private fun space(parent: LinearLayout, height: Int) {
-        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
-    }
-
-    private fun rounded(color: Int, radius: Int): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(radius).toFloat()
-        }
-
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
-}
+            "No real-world scanning, exploitat
