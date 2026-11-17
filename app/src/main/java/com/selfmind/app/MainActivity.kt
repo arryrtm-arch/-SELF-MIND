@@ -367,6 +367,26 @@ class MainActivity : Activity() {
         )
     }
 
+private fun testPermissionManager(): String {
+    val action = SensitiveAction.DELETE_FILE
+
+    PermissionManager.reset(action)
+
+    val blocked = !PermissionManager.canExecute(action)
+
+    PermissionManager.approve(action)
+
+    val approved = PermissionManager.canExecute(action)
+
+    PermissionManager.reset(action)
+
+    return if (blocked && approved) {
+        "Permission Manager test PASSED. Sensitive actions are blocked until approved."
+    } else {
+        "Permission Manager test FAILED. Please check the module."
+    }
+}
+
     private fun localReply(prompt: String): String {
         val p = prompt.lowercase()
 
