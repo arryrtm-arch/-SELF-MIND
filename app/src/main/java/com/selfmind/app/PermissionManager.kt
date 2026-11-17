@@ -24,30 +24,32 @@ object PermissionManager {
         mutableMapOf<SensitiveAction, ApprovalStatus>()
 
     @Synchronized
-    fun requestApproval(
-        action: SensitiveAction
-    ): ApprovalStatus {
+    fun requestApproval(action: SensitiveAction): ApprovalStatus {
         return approvals[action] ?: ApprovalStatus.PENDING
     }
 
     @Synchronized
-    fun approve(
-        action: SensitiveAction
-    ) {
+    fun approve(action: SensitiveAction) {
         approvals[action] = ApprovalStatus.APPROVED
     }
 
     @Synchronized
-    fun deny(
-        action: SensitiveAction
-    ) {
+    fun deny(action: SensitiveAction) {
         approvals[action] = ApprovalStatus.DENIED
     }
 
     @Synchronized
-    fun reset(
-        action: SensitiveAction
-    ) {
+    fun consumeApproval(action: SensitiveAction): Boolean {
+        val approved =
+            approvals[action] == ApprovalStatus.APPROVED
+
+        approvals.remove(action)
+
+        return approved
+    }
+
+    @Synchronized
+    fun reset(action: SensitiveAction) {
         approvals.remove(action)
     }
 
@@ -57,9 +59,7 @@ object PermissionManager {
     }
 
     @Synchronized
-    fun canExecute(
-        action: SensitiveAction
-    ): Boolean {
+    fun canExecute(action: SensitiveAction): Boolean {
         return approvals[action] == ApprovalStatus.APPROVED
     }
 }
