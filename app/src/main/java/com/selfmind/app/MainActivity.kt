@@ -1182,4 +1182,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             value * resources.displayMetrics.density + 0.5f
         ).toInt()
     }
+    private fun stopWakeListening() {
+    stopVoiceAssistant()
+}
 }
