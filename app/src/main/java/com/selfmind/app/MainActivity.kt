@@ -312,7 +312,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 val prompt = input.text.toString().trim()
 
                 if (prompt.isNotEmpty()) {
-                    saveMessage("You", prompt)
+                
 
                     (getSystemService(Context.INPUT_METHOD_SERVICE)
                         as InputMethodManager)
