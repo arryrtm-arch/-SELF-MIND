@@ -225,9 +225,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 askPermission(
                     SensitiveAction.ACCESS_MICROPHONE,
                     "J.A.R.V.I.S. wants to listen for the wake word Jarvis while this app is open. Allow?"
-                ) {
-                    checkMicrophonePermission()
-                }
+                ) { checkMicrophonePermission() }
             }
         }
 
