@@ -26,7 +26,11 @@ import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
+import java.util.concurrent.Executors
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
@@ -45,9 +49,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var wakeListening = false
     private var wakeDetected = false
+    private var listeningForCommand = false
     private var wakeStatus: TextView? = null
 
     private val handler = Handler(Looper.getMainLooper())
+    private val networkExecutor = Executors.newSingleThreadExecutor()
+
+    private val backendUrl =
+        "https://jarvis-ai-brain.arryrtm.workers.dev/chat"
 
     companion object {
         private const val FILE_PICKER_REQUEST = 1001
@@ -58,7 +67,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Existing local memory name must remain unchanged.
         prefs = getSharedPreferences("self_mind", MODE_PRIVATE)
+
         tts = TextToSpeech(this, this)
         showPage("Chat")
     }
@@ -66,6 +78,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val result = tts?.setLanguage(Locale("hi", "IN"))
+
             if (result == TextToSpeech.LANG_MISSING_DATA ||
                 result == TextToSpeech.LANG_NOT_SUPPORTED
             ) {
@@ -73,8 +86,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
         }
     }
-
-    private fun showPage(name: String) {
+        private fun showPage(name: String) {
         page = name
 
         root = LinearLayout(this).apply {
@@ -82,19 +94,32 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setBackgroundColor(bg)
             setPadding(dp(18), dp(16), dp(18), dp(12))
         }
+
         setContentView(root)
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+
         val brand = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+
         brand.addView(label("J.A.R.V.I.S.", 22f, textColor, true))
-        brand.addView(label("PERSONAL AI DEVELOPMENT SYSTEM", 9f, muted, true))
-        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(label("● LOCAL MVP", 10f, accent, true))
+        brand.addView(
+            label("PERSONAL AI DEVELOPMENT SYSTEM", 9f, muted, true)
+        )
+
+        header.addView(
+            brand,
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+
+        header.addView(
+            label("● ONLINE AI", 10f, accent, true)
+        )
+
         root.addView(header)
         space(root, 18)
 
@@ -107,7 +132,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
 
         val spacer = View(this)
-        root.addView(spacer, LinearLayout.LayoutParams(1, 0, 1f))
+        root.addView(
+            spacer,
+            LinearLayout.LayoutParams(1, 0, 1f)
+        )
+
         space(root, 10)
 
         val nav = LinearLayout(this).apply {
@@ -117,42 +146,74 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setPadding(dp(4), dp(8), dp(4), dp(8))
         }
 
-        listOf("Chat", "Brain", "Cyber Lab", "Builder", "Memory").forEach { item ->
-            val button = TextView(this).apply {
-                this.text = when (item) {
-                    "Cyber Lab" -> "⌁\nCyber"
-                    "Chat" -> "◉\nChat"
-                    "Brain" -> "✧\nBrain"
-                    "Builder" -> "⌘\nBuild"
-                    else -> "▤\nMemory"
+        listOf("Chat", "Brain", "Cyber Lab", "Builder", "Memory")
+            .forEach { item ->
+
+                val button = TextView(this).apply {
+                    text = when (item) {
+                        "Cyber Lab" -> "⌁\nCyber"
+                        "Chat" -> "◉\nChat"
+                        "Brain" -> "✧\nBrain"
+                        "Builder" -> "⌘\nBuild"
+                        else -> "▤\nMemory"
+                    }
+
+                    gravity = Gravity.CENTER
+                    textSize = 10f
+
+                    setTextColor(
+                        if (page == item) accent else muted
+                    )
+
+                    setPadding(dp(5), dp(3), dp(5), dp(3))
+
+                    setOnClickListener {
+                        showPage(item)
+                    }
                 }
-                gravity = Gravity.CENTER
-                textSize = 10f
-                setTextColor(if (page == item) accent else muted)
-                setPadding(dp(5), dp(3), dp(5), dp(3))
-                setOnClickListener { showPage(item) }
+
+                nav.addView(
+                    button,
+                    LinearLayout.LayoutParams(0, dp(48), 1f)
+                )
             }
-            nav.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
-        }
+
         root.addView(nav)
     }
 
     private fun chatPage() {
-        root.addView(label("Your command centre", 23f, textColor, true))
-        root.addView(label(
-            "Give J.A.R.V.I.S. a task. This starter build runs in local demo mode.",
-            13f, muted
-        ))
+        root.addView(
+            label("Your command centre", 23f, textColor, true)
+        )
+
+        root.addView(
+            label(
+                "Talk to J.A.R.V.I.S. using online AI.",
+                13f,
+                muted
+            )
+        )
+
         space(root, 12)
 
         val wakeButton = actionButton(
-            if (wakeListening) "Stop Jarvis Listening" else "Start Jarvis Wake Listening"
+            if (wakeListening)
+                "Stop Jarvis Listening"
+            else
+                "Start Jarvis Wake Listening"
         )
+
         root.addView(wakeButton)
+
         wakeStatus = label(
-            if (wakeListening) "Listening for: Jarvis" else "Wake listening is OFF",
-            12f, accent
+            if (wakeListening)
+                "Listening for: Jarvis"
+            else
+                "Wake listening is OFF",
+            12f,
+            accent
         )
+
         root.addView(wakeStatus!!)
         space(root, 12)
 
@@ -164,37 +225,55 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 askPermission(
                     SensitiveAction.ACCESS_MICROPHONE,
                     "J.A.R.V.I.S. wants to listen for the wake word Jarvis while this app is open. Allow?"
-                ) { checkMicrophonePermission() }
+                ) {
+                    checkMicrophonePermission()
+                }
             }
         }
 
         val scroll = ScrollView(this)
+
         val messages = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+
         val history = loadMessages()
+
         if (history.length() == 0) {
             addBubble(
                 messages,
                 "J.A.R.V.I.S.",
-                "System online. I am running in local demo mode. Connect an AI backend in a later build to enable real model reasoning.",
+                "System online. Online AI connection is ready to be tested.",
                 false
             )
         } else {
             for (i in 0 until history.length()) {
                 val obj = history.optJSONObject(i) ?: continue
                 val role = obj.optString("role")
-                addBubble(messages, role, obj.optString("content"), role == "You")
+
+                addBubble(
+                    messages,
+                    role,
+                    obj.optString("content"),
+                    role == "You"
+                )
             }
         }
+
         scroll.addView(messages)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(-1, 0, 1f)
+        )
+
         space(root, 10)
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+
         val input = EditText(this).apply {
             hint = "Message J.A.R.V.I.S.…"
             setHintTextColor(muted)
@@ -202,44 +281,84 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             textSize = 14f
             setSingleLine(false)
             maxLines = 3
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(
+                dp(14),
+                dp(12),
+                dp(14),
+                dp(12)
+            )
             background = rounded(panel2, 16)
         }
-        row.addView(input, LinearLayout.LayoutParams(0, dp(54), 1f))
+
+        row.addView(
+            input,
+            LinearLayout.LayoutParams(0, dp(54), 1f)
+        )
 
         val send = TextView(this).apply {
-            this.text = " SEND "
+            text = " SEND "
             gravity = Gravity.CENTER
             setTextColor(bg)
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
             background = rounded(accent, 14)
-            setPadding(dp(12), dp(14), dp(12), dp(14))
+
+            setPadding(
+                dp(12),
+                dp(14),
+                dp(12),
+                dp(14)
+            )
+
             setOnClickListener {
                 val prompt = input.text.toString().trim()
+
                 if (prompt.isNotEmpty()) {
                     saveMessage("You", prompt)
-                    saveMessage("J.A.R.V.I.S.", localReply(prompt))
-                    (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+
+                    (getSystemService(Context.INPUT_METHOD_SERVICE)
+                        as InputMethodManager)
                         .hideSoftInputFromWindow(input.windowToken, 0)
+
+                    sendToJarvis(prompt)
                     showPage("Chat")
                 }
             }
         }
-        row.addView(send, LinearLayout.LayoutParams(-2, dp(54)).apply {
-            leftMargin = dp(8)
-        })
+
+        row.addView(
+            send,
+            LinearLayout.LayoutParams(-2, dp(54)).apply {
+                leftMargin = dp(8)
+            }
+        )
+
         root.addView(row)
     }
-
-    private fun checkMicrophonePermission() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            startWakeListening()
-        } else {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MICROPHONE_REQUEST)
+        private fun startVoiceAssistant() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(
+                this,
+                "Speech recognition available nahi hai",
+                Toast.LENGTH_LONG
+            ).show()
+            return
         }
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                MICROPHONE_REQUEST
+            )
+            return
+        }
+
+        wakeListening = true
+        wakeDetected = false
+        listeningForCommand = false
+        startWakeListening()
     }
 
     override fun onRequestPermissionsResult(
@@ -247,178 +366,535 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
         if (requestCode == MICROPHONE_REQUEST) {
             if (grantResults.isNotEmpty() &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             ) {
-                startWakeListening()
+                startVoiceAssistant()
             } else {
-                Toast.makeText(this, "Microphone permission denied.", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    "Microphone permission nahi mili",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
 
     private fun startWakeListening() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(
-                this,
-                "Speech recognition is not available on this phone.",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
+        if (!wakeListening || wakeDetected) return
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+
         try {
-            wakeListening = true
-            wakeDetected = false
-            updateWakeStatus("Listening for: Jarvis")
             speechRecognizer?.destroy()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    updateWakeStatus("Listening for: Jarvis")
-                }
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onError(error: Int) {
-                    if (wakeListening && !wakeDetected) {
-                        if (error == SpeechRecognizer.ERROR_NO_MATCH ||
-                            error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-                        ) {
-                            restartWakeListening(600)
-                        } else {
-                            stopWakeListening()
-                            updateWakeStatus("Listening stopped. Tap Start to try again.")
+
+            speechRecognizer?.setRecognitionListener(
+                object : RecognitionListener {
+
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        wakeStatus?.text = "● J.A.R.V.I.S. SUN RAHA HAI"
+                    }
+
+                    override fun onBeginningOfSpeech() {}
+
+                    override fun onRmsChanged(rmsdB: Float) {}
+
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+
+                    override fun onEndOfSpeech() {}
+
+                    override fun onError(error: Int) {
+                        if (listeningForCommand) {
+                            listeningForCommand = false
+                            wakeDetected = false
+                        }
+
+                        if (wakeListening) {
+                            handler.postDelayed({
+                                restartWakeListening()
+                            }, 1000)
                         }
                     }
-                }
-                override fun onResults(results: Bundle?) {
-                    if (!wakeListening) return
-                    val matches = results?.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION
-                    )
-                    checkWakePhrase(matches?.firstOrNull().orEmpty())
-                    if (wakeListening && !wakeDetected) restartWakeListening(500)
-                }
-                override fun onPartialResults(partialResults: Bundle?) {
-                    if (!wakeListening || wakeDetected) return
-                    val matches = partialResults?.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION
-                    )
-                    checkWakePhrase(matches?.firstOrNull().orEmpty())
-                }
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-            listenForWakeWord()
-        } catch (e: Exception) {
-            stopWakeListening()
-            Toast.makeText(this, "Wake listening error: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
 
-    private fun listenForWakeWord() {
-        if (!wakeListening || isFinishing) return
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    override fun onResults(results: Bundle?) {
+                        val matches = results?.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION
+                        )
+
+                        val spokenText = matches
+                            ?.firstOrNull()
+                            ?.lowercase(Locale.getDefault())
+                            ?: ""
+
+                        if (listeningForCommand) {
+                            listeningForCommand = false
+                            wakeDetected = false
+
+                            if (spokenText.isNotBlank()) {
+                                sendToJarvis(spokenText)
+                            }
+
+                            if (wakeListening) {
+                                handler.postDelayed({
+                                    restartWakeListening()
+                                }, 1800)
+                            }
+                            return
+                        }
+
+                        if (spokenText.contains("jarvis") ||
+                            spokenText.contains("jervis")
+                        ) {
+                            wakeDetected = true
+                            speak("Ji, Master Arhaan")
+
+                            handler.postDelayed({
+                                listenForCommand()
+                            }, 1200)
+                        } else {
+                            restartWakeListening()
+                        }
+                    }
+
+                    override fun onPartialResults(
+                        partialResults: Bundle?
+                    ) {}
+
+                    override fun onEvent(
+                        eventType: Int,
+                        params: Bundle?
+                    ) {}
+                }
+            )
+
+            val intent = Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            ).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                 )
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    "en-IN"
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_PARTIAL_RESULTS,
+                    false
+                )
             }
+
             speechRecognizer?.startListening(intent)
-        } catch (_: Exception) {
-            stopWakeListening()
-            updateWakeStatus("Could not start microphone listening.")
+
+        } catch (e: Exception) {
+            wakeStatus?.text = "Voice assistant error"
+            restartWakeListening()
         }
     }
 
-    private fun checkWakePhrase(spoken: String) {
-        if (!wakeListening || wakeDetected) return
-        val words = spoken.lowercase(Locale.ROOT)
-            .replace(Regex("[^a-z ]"), " ")
-            .trim()
-        if (words.split(Regex("\\s+")).any { it == "jarvis" || it == "jervis" }) {
-            wakeDetected = true
-            updateWakeStatus("Wake word detected!")
-            try {
-                speechRecognizer?.stopListening()
-            } catch (_: Exception) {
+    private fun listenForCommand() {
+        if (!wakeListening) return
+
+        listeningForCommand = true
+
+        try {
+            val intent = Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            ).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    "en-IN"
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_PARTIAL_RESULTS,
+                    false
+                )
             }
-            tts?.speak(
-                "Ji, Master Arhaan",
-                TextToSpeech.QUEUE_FLUSH,
-                null,
-                "JARVIS_WAKE_REPLY"
-            )
-            handler.postDelayed({
-                if (wakeListening && !isFinishing) {
-                    wakeDetected = false
-                    listenForWakeWord()
-                }
-            }, 1800)
+
+            speechRecognizer?.startListening(intent)
+
+        } catch (e: Exception) {
+            listeningForCommand = false
+            wakeDetected = false
+            restartWakeListening()
         }
     }
 
-    private fun restartWakeListening(delay: Long) {
+    private fun restartWakeListening() {
+        if (!wakeListening || wakeDetected) return
+
         handler.postDelayed({
-            if (wakeListening && !wakeDetected && !isFinishing) listenForWakeWord()
-        }, delay)
+            if (wakeListening && !wakeDetected) {
+                startWakeListening()
+            }
+        }, 700)
     }
 
-    private fun updateWakeStatus(message: String) {
-        wakeStatus?.text = message
-    }
-
-    private fun stopWakeListening() {
+    private fun stopVoiceAssistant() {
         wakeListening = false
         wakeDetected = false
-        handler.removeCallbacksAndMessages(null)
+        listeningForCommand = false
+
         try {
             speechRecognizer?.cancel()
             speechRecognizer?.destroy()
         } catch (_: Exception) {
         }
+
         speechRecognizer = null
-        updateWakeStatus("Wake listening is OFF")
+        wakeStatus?.text = "● VOICE ASSISTANT OFF"
     }
+        private fun sendToJarvis(prompt: String) {
+        val cleanPrompt = prompt.trim()
 
-    override fun onPause() {
-        if (wakeListening) stopWakeListening()
-        super.onPause()
-    }
+        if (cleanPrompt.isBlank()) return
 
-    private fun brainPage() {
-        root.addView(label("AI Brain", 23f, textColor, true))
-        root.addView(label("Core intelligence status and planned integrations.", 13f, muted))
-        space(root, 14)
-        infoCard("Reasoning engine", "Not connected",
-            "Choose an AI model endpoint in a future backend setup.")
-        infoCard("Memory system", "Local conversation memory",
-            "Chat messages are saved on this device.")
-        infoCard("Agent orchestrator", "Planned",
-            "Will coordinate researcher, coder, tester and reviewer agents.")
-        infoCard("Self-improvement", "Approval-gated",
-            "New code must be tested in an isolated workspace and approved before integration.")
-        infoCard("Personal file access", "User-controlled",
-            "Only a text file selected by you can be opened by this feature.")
+        saveChatMessage("user", cleanPrompt)
 
-        val fileButton = actionButton("Access Personal Text File")
-        root.addView(fileButton)
-        fileButton.setOnClickListener {
-            askPermission(
-                SensitiveAction.READ_PERSONAL_FILE,
-                "J.A.R.V.I.S. wants to open a text file you select. Allow this action?"
-            ) { openTextFilePicker() }
+        showPage("Chat")
+
+        networkExecutor.execute {
+            try {
+                val connection = URL(backendUrl)
+                    .openConnection() as HttpURLConnection
+
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 20000
+                connection.readTimeout = 60000
+                connection.doOutput = true
+                connection.setRequestProperty(
+                    "Content-Type",
+                    "application/json"
+                )
+
+                val requestBody = JSONObject().apply {
+                    put("message", cleanPrompt)
+                    put("history", buildApiHistory())
+                }
+
+                OutputStreamWriter(
+                    connection.outputStream,
+                    Charsets.UTF_8
+                ).use {
+                    it.write(requestBody.toString())
+                }
+
+                val responseCode = connection.responseCode
+
+                val responseStream =
+                    if (responseCode in 200..299) {
+                        connection.inputStream
+                    } else {
+                        connection.errorStream
+                    }
+
+                val responseText =
+                    responseStream.bufferedReader().use {
+                        it.readText()
+                    }
+
+                connection.disconnect()
+
+                if (responseCode !in 200..299) {
+                    throw Exception("Server error: $responseCode")
+                }
+
+                val json = JSONObject(responseText)
+                val reply = json.optString(
+                    "reply",
+                    "Mujhe response nahi mila."
+                )
+
+                saveChatMessage("assistant", reply)
+
+                runOnUiThread {
+                    if (page == "Chat") {
+                        showPage("Chat")
+                    }
+                    speak(reply)
+                }
+
+            } catch (e: Exception) {
+                val errorMessage =
+                    "Online connection mein problem hai: ${e.message}"
+
+                saveChatMessage("assistant", errorMessage)
+
+                runOnUiThread {
+                    if (page == "Chat") {
+                        showPage("Chat")
+                    }
+                }
+            }
         }
     }
 
-    private fun askPermission(
+    private fun saveChatMessage(
+        role: String,
+        message: String
+    ) {
+        try {
+            val saved = JSONArray(
+                prefs.getString(PREF_MESSAGES, "[]")
+            )
+
+            val item = JSONObject().apply {
+                put("role", role)
+                put("content", message)
+                put("time", System.currentTimeMillis())
+            }
+
+            saved.put(item)
+
+            while (saved.length() > 200) {
+                saved.remove(0)
+            }
+
+            prefs.edit()
+                .putString(PREF_MESSAGES, saved.toString())
+                .apply()
+
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun buildApiHistory(): JSONArray {
+        val history = JSONArray()
+
+        try {
+            val saved = JSONArray(
+                prefs.getString(PREF_MESSAGES, "[]")
+            )
+
+            val start = (saved.length() - 11).coerceAtLeast(0)
+
+            // Aakhri item current prompt hai; use alag se bheja ja raha hai.
+            for (i in start until (saved.length() - 1).coerceAtLeast(0)) {
+                val item = saved.optJSONObject(i) ?: continue
+
+                val role = item.optString("role")
+                val content = item.optString("content")
+
+                if (content.isBlank()) continue
+                if (role != "user" && role != "assistant") continue
+
+                history.put(
+                    JSONObject().apply {
+                        put("role", role)
+                        put("content", content)
+                    }
+                )
+            }
+
+        } catch (_: Exception) {
+        }
+
+        return history
+    }
+        private fun speak(message: String) {
+        if (message.isBlank()) return
+
+        runOnUiThread {
+            try {
+                tts?.speak(
+                    message,
+                    TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "JARVIS_SPEECH"
+                )
+            } catch (_: Exception) {
+                // Voice output unavailable
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+
+        // App background mein jaane par microphone listening band.
+        stopVoiceAssistant()
+    }
+
+    override fun onResume() {
+        super.onResume()
+    }
+
+    override fun onDestroy() {
+        stopVoiceAssistant()
+
+        try {
+            tts?.stop()
+            tts?.shutdown()
+            networkExecutor.shutdown()
+        } catch (_: Exception) {
+        }
+
+        super.onDestroy()
+    }
+        private fun brainPage() {
+        root.addView(label("AI Brain", 23f, textColor, true))
+        root.addView(label(
+            "Core intelligence status and planned integrations.",
+            13f, muted
+        ))
+        space(root, 14)
+
+        infoCard(
+            "Reasoning engine",
+            "Online connection configured",
+            "Advanced reasoning backend ke through chalegi. Internet zaroori hai."
+        )
+
+        infoCard(
+            "Memory system",
+            "Local conversation memory",
+            "Chat messages is device par save honge."
+        )
+
+        infoCard(
+            "Agent orchestrator",
+            "Planned",
+            "Researcher, coder, tester aur reviewer agents ko coordinate karega."
+        )
+
+        infoCard(
+            "Self-improvement",
+            "Approval-gated",
+            "Naya code test aur aapki approval ke baad hi integrate hoga."
+        )
+
+        infoCard(
+            "Personal file access",
+            "User-controlled",
+            "Sirf aapke select kiye hue text file ko open kiya jayega."
+        )
+
+        val fileButton = actionButton("Access Personal Text File")
+        root.addView(fileButton)
+
+        fileButton.setOnClickListener {
+            askPermission(
+                SensitiveAction.READ_PERSONAL_FILE,
+                "J.A.R.V.I.S. aapse select ki hui text file open karna chahta hai. Allow?"
+            ) {
+                openTextFilePicker()
+            }
+        }
+    }
+
+    private fun cyberPage() {
+        root.addView(label("Cyber Intelligence", 23f, textColor, true))
+        root.addView(label(
+            "Sirf apne systems ya permission wale systems ki security seekhein aur test karein.",
+            13f, muted
+        ))
+        space(root, 14)
+
+        infoCard(
+            "Learning path",
+            "OWASP • Networking • Linux",
+            "Advanced security se pehle basic foundations seekhein."
+        )
+
+        infoCard(
+            "Practice lab",
+            "Not connected",
+            "PortSwigger Academy aur OWASP Juice Shop jaise training labs use kar sakte hain."
+        )
+
+        infoCard(
+            "Safety boundary",
+            "Authorized testing only",
+            "Bina permission kisi real system ko scan, exploit ya access nahi karna."
+        )
+    }
+
+    private fun builderPage() {
+        root.addView(label("Agent Builder", 23f, textColor, true))
+        root.addView(label(
+            "Tools aur AI agents ka project planner. Abhi ye active code generator nahi hai.",
+            13f, muted
+        ))
+        space(root, 14)
+
+        infoCard(
+            "Research agent",
+            "Planned",
+            "Sources collect karega, findings summarize karega aur references save karega."
+        )
+
+        infoCard(
+            "Coding agent",
+            "Planned",
+            "Code changes draft karega; bina approval app ko modify nahi karega."
+        )
+
+        infoCard(
+            "Testing agent",
+            "Planned",
+            "Approved changes se pehle isolated environment mein tests karega."
+        )
+
+        infoCard(
+            "Security guard",
+            "Required",
+            "Sensitive actions ke liye aapki permission zaroori hogi."
+        )
+    }
+
+    private fun memoryPage() {
+        root.addView(label("Local Memory", 23f, textColor, true))
+        root.addView(label(
+            "Conversation history is device par existing self_mind preferences mein save hoti hai.",
+            13f, muted
+        ))
+        space(root, 14)
+
+        val history = loadMessages()
+
+        infoCard(
+            "Saved messages",
+            history.length().toString(),
+            "Ye local chat entries hain, cloud-synced memory nahi."
+        )
+
+        val clearButton = actionButton("Clear Conversation History")
+        root.addView(clearButton)
+
+        clearButton.setOnClickListener {
+            askPermission(
+                SensitiveAction.DELETE_FILE,
+                "Isse device ki saved J.A.R.V.I.S. conversation history delete ho jayegi. Continue?"
+            ) {
+                prefs.edit()
+                    .remove(PREF_MESSAGES)
+                    .apply()
+
+                Toast.makeText(
+                    this,
+                    "Conversation history cleared.",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                showPage("Memory")
+            }
+        }
+    }
+        private fun askPermission(
         action: SensitiveAction,
         description: String,
         onApproved: () -> Unit
@@ -428,12 +904,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             .setMessage(description)
             .setPositiveButton("Allow") { _, _ ->
                 PermissionManager.approve(action)
-                if (PermissionManager.consumeApproval(action)) onApproved()
+
+                if (PermissionManager.consumeApproval(action)) {
+                    onApproved()
+                }
             }
             .setNegativeButton("Deny") { _, _ ->
                 PermissionManager.deny(action)
                 PermissionManager.reset(action)
-                Toast.makeText(this, "Permission denied. Action blocked.", Toast.LENGTH_SHORT).show()
+
+                Toast.makeText(
+                    this,
+                    "Permission denied. Action blocked.",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             .setCancelable(false)
             .show()
@@ -445,19 +929,30 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "text/plain"
             }
+
             startActivityForResult(intent, FILE_PICKER_REQUEST)
+
         } catch (e: Exception) {
             Toast.makeText(
-                this, "File picker could not open: ${e.message}", Toast.LENGTH_LONG
+                this,
+                "File picker nahi khul saka: ${e.message}",
+                Toast.LENGTH_LONG
             ).show()
         }
     }
 
     @Deprecated("Using the document picker for this starter implementation")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == FILE_PICKER_REQUEST && resultCode == RESULT_OK) {
-            val uri: Uri = data?.data ?: return
+
+        if (requestCode == FILE_PICKER_REQUEST &&
+            resultCode == RESULT_OK
+        ) {
+            val uri = data?.data ?: return
             readSelectedTextFile(uri)
         }
     }
@@ -465,127 +960,65 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun readSelectedTextFile(uri: Uri) {
         try {
             val fileName = contentResolver.query(
-                uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
             )?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else "Selected file"
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)
+                } else {
+                    "Selected file"
+                }
             } ?: "Selected file"
 
             val output = ByteArrayOutputStream()
+
             contentResolver.openInputStream(uri)?.use { input ->
                 val buffer = ByteArray(4096)
                 var total = 0
+
                 while (total < MAX_PREVIEW_BYTES) {
-                    val count = input.read(buffer, 0, minOf(buffer.size, MAX_PREVIEW_BYTES - total))
+                    val count = input.read(
+                        buffer,
+                        0,
+                        minOf(buffer.size, MAX_PREVIEW_BYTES - total)
+                    )
+
                     if (count <= 0) break
+
                     output.write(buffer, 0, count)
                     total += count
                 }
-            } ?: throw Exception("Unable to open selected file.")
+            } ?: throw Exception("File open nahi ho payi.")
 
             val preview = output.toByteArray().toString(Charsets.UTF_8)
+
             AlertDialog.Builder(this)
                 .setTitle("File Access Successful")
-                .setMessage("File: $fileName\n\nText preview (maximum 20 KB):\n\n$preview")
+                .setMessage(
+                    "File: $fileName\n\n" +
+                    "Text preview (maximum 20 KB):\n\n$preview"
+                )
                 .setPositiveButton("Close", null)
                 .show()
+
         } catch (e: Exception) {
             Toast.makeText(
-                this, "File could not be opened: ${e.message}", Toast.LENGTH_LONG
+                this,
+                "File read nahi ho payi: ${e.message}",
+                Toast.LENGTH_LONG
             ).show()
         }
     }
-
-    private fun cyberPage() {
-        root.addView(label("Cyber Intelligence", 23f, textColor, true))
-        root.addView(label(
-            "Learn and test security in systems you own or have permission to assess.",
-            13f, muted
-        ))
-        space(root, 14)
-        infoCard("Learning path", "OWASP • Networking • Linux",
-            "Build foundations before advanced vulnerability research.")
-        infoCard("Practice lab", "Not connected",
-            "Use intentionally vulnerable training labs such as PortSwigger Academy or OWASP Juice Shop.")
-        infoCard("Safety boundary", "Authorized testing only",
-            "No real-world scanning, exploitation, or access without explicit authorization.")
-    }
-
-    private fun builderPage() {
-        root.addView(label("Agent Builder", 23f, textColor, true))
-        root.addView(label(
-            "Plan tools and agents. This screen is a local project planner, not an active code generator.",
-            13f, muted
-        ))
-        space(root, 14)
-        infoCard("Research agent", "Planned",
-            "Collects sources, summarizes findings and keeps references.")
-        infoCard("Coding agent", "Planned",
-            "Drafts code changes for review; it cannot modify this app automatically.")
-        infoCard("Testing agent", "Planned",
-            "Runs checks in an isolated environment before any approved change.")
-        infoCard("Security guard", "Required",
-            "Sensitive actions require your approval. Never store API keys inside the APK.")
-    }
-
-    private fun memoryPage() {
-        root.addView(label("Local Memory", 23f, textColor, true))
-        root.addView(label(
-            "Conversation history is stored on this device using the existing self_mind preferences.",
-            13f, muted
-        ))
-        space(root, 14)
-
-        val history = loadMessages()
-        infoCard("Saved messages", history.length().toString(),
-            "These are local chat entries, not cloud-synced memory.")
-
-        val clearButton = actionButton("Clear Conversation History")
-        root.addView(clearButton)
-        clearButton.setOnClickListener {
-            askPermission(
-                SensitiveAction.DELETE_FILE,
-                "This will delete the saved J.A.R.V.I.S. conversation history on this device. Continue?"
-            ) {
-                prefs.edit().remove(PREF_MESSAGES).apply()
-                Toast.makeText(this, "Conversation history cleared.", Toast.LENGTH_SHORT).show()
-                showPage("Memory")
-            }
-        }
-    }
-
-    private fun loadMessages(): JSONArray {
+        private fun loadMessages(): JSONArray {
         return try {
-            JSONArray(prefs.getString(PREF_MESSAGES, "[]") ?: "[]")
+            JSONArray(
+                prefs.getString(PREF_MESSAGES, "[]") ?: "[]"
+            )
         } catch (_: Exception) {
             JSONArray()
-        }
-    }
-
-    private fun saveMessage(role: String, content: String) {
-        val messages = loadMessages()
-        messages.put(JSONObject().apply {
-            put("role", role)
-            put("content", content)
-        })
-        // Keep the most recent 200 entries to limit local storage growth.
-        val trimmed = JSONArray()
-        val start = (messages.length() - 200).coerceAtLeast(0)
-        for (i in start until messages.length()) {
-            trimmed.put(messages.getJSONObject(i))
-        }
-        prefs.edit().putString(PREF_MESSAGES, trimmed.toString()).apply()
-    }
-
-    private fun localReply(prompt: String): String {
-        val query = prompt.lowercase(Locale.ROOT)
-        return when {
-            "jarvis" in query -> "Ji. Main J.A.R.V.I.S. hoon. Filhaal local demo mode mein kaam kar raha hoon."
-            "hello" in query || "hi" == query -> "Hello. J.A.R.V.I.S. local demo mode mein ready hai."
-            "time" in query -> "Main abhi real-time system data se connected nahi hoon."
-            "who are you" in query || "tum kon" in query || "who r u" in query ->
-                "Main J.A.R.V.I.S. hoon, aapka local AI assistant prototype."
-            "help" in query -> "Aap Chat mein message bhej sakte hain, Brain mein file select kar sakte hain, aur Cyber Lab mein security learning plan dekh sakte hain."
-            else -> "Command receive ho gaya. Abhi main local demo mode mein hoon; real AI reasoning ke liye secure backend connection abhi add nahi hua hai."
         }
     }
 
@@ -597,34 +1030,91 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     ) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(if (isUser) Color.rgb(27, 66, 65) else panel, 14)
-            setPadding(dp(13), dp(10), dp(13), dp(10))
+
+            background = rounded(
+                if (isUser) Color.rgb(27, 66, 65) else panel,
+                14
+            )
+
+            setPadding(
+                dp(13),
+                dp(10),
+                dp(13),
+                dp(10)
+            )
         }
-        card.addView(label(role, 11f, if (isUser) accent else muted, true))
+
+        card.addView(
+            label(
+                role,
+                11f,
+                if (isUser) accent else muted,
+                true
+            )
+        )
+
         space(card, 4)
-        card.addView(label(message, 14f, textColor))
+
+        card.addView(
+            label(message, 14f, textColor)
+        )
+
         val params = LinearLayout.LayoutParams(
-            if (isUser) (resources.displayMetrics.widthPixels * 0.82f).toInt() else -1,
+            if (isUser) {
+                (resources.displayMetrics.widthPixels * 0.82f).toInt()
+            } else {
+                -1
+            },
             -2
         )
-        params.gravity = if (isUser) Gravity.END else Gravity.START
+
+        params.gravity = if (isUser) {
+            Gravity.END
+        } else {
+            Gravity.START
+        }
+
         params.bottomMargin = dp(8)
+
         container.addView(card, params)
     }
 
-    private fun infoCard(title: String, status: String, description: String) {
+    private fun infoCard(
+        title: String,
+        status: String,
+        description: String
+    ) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(panel, 16)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+
+            setPadding(
+                dp(14),
+                dp(12),
+                dp(14),
+                dp(12)
+            )
         }
-        card.addView(label(title, 15f, textColor, true))
+
+        card.addView(
+            label(title, 15f, textColor, true)
+        )
+
         space(card, 4)
-        card.addView(label(status, 12f, accent, true))
+
+        card.addView(
+            label(status, 12f, accent, true)
+        )
+
         space(card, 4)
-        card.addView(label(description, 12f, muted))
+
+        card.addView(
+            label(description, 12f, muted)
+        )
+
         val params = LinearLayout.LayoutParams(-1, -2)
         params.bottomMargin = dp(10)
+
         root.addView(card, params)
     }
 
@@ -636,7 +1126,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setTextColor(bg)
             setTypeface(null, Typeface.BOLD)
             background = rounded(accent, 14)
-            setPadding(dp(14), dp(13), dp(14), dp(13))
+
+            setPadding(
+                dp(14),
+                dp(13),
+                dp(14),
+                dp(13)
+            )
         }
     }
 
@@ -650,17 +1146,31 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             text = value
             textSize = size
             setTextColor(color)
-            if (bold) setTypeface(null, Typeface.BOLD)
+
+            if (bold) {
+                setTypeface(null, Typeface.BOLD)
+            }
+
             setLineSpacing(dp(2).toFloat(), 1f)
         }
     }
 
-    private fun space(container: LinearLayout, heightDp: Int) {
+    private fun space(
+        container: LinearLayout,
+        heightDp: Int
+    ) {
         val spacer = View(this)
-        container.addView(spacer, LinearLayout.LayoutParams(1, dp(heightDp)))
+
+        container.addView(
+            spacer,
+            LinearLayout.LayoutParams(1, dp(heightDp))
+        )
     }
 
-    private fun rounded(color: Int, radiusDp: Int): GradientDrawable {
+    private fun rounded(
+        color: Int,
+        radiusDp: Int
+    ): GradientDrawable {
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radiusDp).toFloat()
@@ -668,14 +1178,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density + 0.5f).toInt()
-    }
-
-    override fun onDestroy() {
-        stopWakeListening()
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
-        super.onDestroy()
+        return (
+            value * resources.displayMetrics.density + 0.5f
+        ).toInt()
     }
 }
